@@ -1,0 +1,6 @@
+convopyro==0.5
+numpy==2.1.2
+pyrogram==2.0.106
+python-dotenv==1.0.1
+rich==13.9.3
+SQLAlchemy==2.0.36
