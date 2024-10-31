@@ -67,7 +67,8 @@ async def start_new_game(client, message: Message):
     if has_unfinished_game(user_id):
         log.info(f"User has an unfinished game | {user_id}")
         new_msg = await message.reply(
-            "You have a game in progress. Do you want to end the game and start a new one?",
+            "You have a game in progress."
+            " Do you want to end the game and start a new one?",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -146,7 +147,6 @@ async def handle_shuffle(client, callback: CallbackQuery):
     org_order = players.copy()
     n_attempts = 0
     while n_attempts < 10:
-        log.info(f"Attempt {n_attempts} to shuffle | {callback.from_user.id}")
         np.random.shuffle(players)
         if (org_order != players) or (len(players) == 1):
             break
@@ -154,7 +154,8 @@ async def handle_shuffle(client, callback: CallbackQuery):
     else:
         return
 
-    log.info(f"Setting info | {callback.from_user.id}")
+    log.info(f"Shuffled players: {players} | {callback.from_user.id}")
+    log.info(f"Setting players | {callback.from_user.id}")
     set_players(callback.from_user.id, players)
 
     players_string = "\n".join(
@@ -251,10 +252,7 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
             ),
         )
         await client.listen.CallbackQuery(
-            filters.user(callback.from_user.id)
-            & filters.create(
-                lambda _, __, update: has_unfinished_game(update.from_user.id)
-            )
+            filters.user(callback.from_user.id) & filters.create(filter_unfinished_game)
         )
 
         remaining_roles.remove(selected_role)
