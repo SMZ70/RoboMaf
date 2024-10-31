@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import os
 
 import numpy as np
 from convopyro import Conversation
 from dotenv import load_dotenv
+from fancylogging import setup_fancy_logging
 from pyrogram import Client, filters
 from pyrogram.types import (
     CallbackQuery,
@@ -33,11 +35,18 @@ print = console.print
 
 install(console=console)
 
+log = logging.getLogger("robomaf")
+setup_fancy_logging(
+    "robomaf",
+    console_log_level=logging.INFO,
+    file_log_level=logging.DEBUG,
+    file_mode="w",
+)
+
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
-
 
 app = Client(
     "MafiaNarrator",
@@ -48,12 +57,15 @@ app = Client(
 Conversation(app)
 
 init_db()
+log.info("Database initialized")
 
 
 @app.on_message(filters=filters.command("newgame", prefixes=[".", "/"]))
 async def start_new_game(client, message: Message):
     user_id = message.from_user.id
+    log.info(f"Starting new game | {user_id}")
     if has_unfinished_game(user_id):
+        log.info(f"User has an unfinished game | {user_id}")
         new_msg = await message.reply(
             "You have a game in progress. Do you want to end the game and start a new one?",
             reply_markup=InlineKeyboardMarkup(
@@ -66,6 +78,7 @@ async def start_new_game(client, message: Message):
             ),
         )
         try:
+            log.info(f"Waiting for user to click yes/no | {user_id}")
             answer: CallbackQuery = await client.listen.CallbackQuery(
                 filters.user(user_id)
                 & filters.create(
@@ -74,23 +87,37 @@ async def start_new_game(client, message: Message):
             )
 
             if "yes" in answer.data:
+                log.info(f"User answered yes | {user_id}")
                 delete_game(user_id)
                 await message.delete(revoke=True)
                 await new_msg.delete(revoke=True)
             else:
+                log.info(f"User answered no | {user_id}")
                 await message.delete(revoke=True)
                 await new_msg.delete(revoke=True)
                 return
         except TimeoutError:
+            log.info(f"TIMEOUT - No yes/no received | {user_id}")
             pass
+
+    log.info(f"Creating game | {user_id}")
+    create_game(owner_id=message.from_user.id, players=[])
+
+    log.info(f"Getting player names | {user_id}")
 
     await message.reply("Please enter player names, one name per line:", quote=True)
     answer = await client.listen.Message(
-        filters.user(user_id) & filters.regex(r"^(?![./]).*")
+        filters.create(filter_unfinished_game)
+        & filters.user(user_id)
+        & filters.regex(r"^(?![./]).*")
     )
     players = [name.strip() for name in answer.text.split("\n")]
+    log.info(
+        f"{len(players)} Players received - " + ", ".join(players) + f" | {user_id}"
+    )
 
-    create_game(owner_id=message.from_user.id, players=players)
+    log.info(f"Setting players | {user_id}")
+    set_players(user_id, players)
 
     players_string = "\n".join(
         f"{p+1:>02d} - {player}" for p, player in enumerate(players)
@@ -111,6 +138,7 @@ async def start_new_game(client, message: Message):
 
 @app.on_callback_query(filters=filters.create(data_matches_pattern("shuffle_list")))
 async def handle_shuffle(client, callback: CallbackQuery):
+    log.info(f"Shuffle request | {callback.from_user.id}")
     message: Message
     message = callback.message
     players = get_players(callback.from_user.id)
@@ -118,6 +146,7 @@ async def handle_shuffle(client, callback: CallbackQuery):
     org_order = players.copy()
     n_attempts = 0
     while n_attempts < 10:
+        log.info(f"Attempt {n_attempts} to shuffle | {callback.from_user.id}")
         np.random.shuffle(players)
         if (org_order != players) or (len(players) == 1):
             break
@@ -125,10 +154,11 @@ async def handle_shuffle(client, callback: CallbackQuery):
     else:
         return
 
+    log.info(f"Setting info | {callback.from_user.id}")
     set_players(callback.from_user.id, players)
 
     players_string = "\n".join(
-        f"{p+1:>02d} - {player}" for p, player in enumerate(players)
+        f"{p+1:02d} - {player}" for p, player in enumerate(players)
     )
 
     await message.edit(
@@ -187,7 +217,7 @@ async def handle_show_role(client: Client, callback: CallbackQuery):
     roles = get_assigned_roles(callback.from_user.id)
 
     response = "\n".join(
-        f"{i} - {player}: {role}"
+        f"{i:02d} - {player}: {role}"
         for i, (player, role) in enumerate(zip(players, roles), start=1)
     )
     await callback.message.reply(response)
@@ -260,5 +290,6 @@ async def main():
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
+    log.info("Starting bot")
     loop.create_task(main())
     loop.run_forever()

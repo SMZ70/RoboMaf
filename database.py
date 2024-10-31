@@ -68,9 +68,7 @@ class Game(Base):
 
 def has_unfinished_game(user_id: int) -> bool:
     with Session.begin() as session:
-        return (
-            session.query(Game).filter(Game.id == user_id).first() is not None
-        )
+        return session.query(Game).filter(Game.id == user_id).first() is not None
 
 
 def create_game(owner_id: int, players: list[str]):
