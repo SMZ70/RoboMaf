@@ -1,3 +1,4 @@
 .env
 MafiaNarrator.session
 robomaf.db
+__pycache__/
