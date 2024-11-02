@@ -180,11 +180,12 @@ async def handle_confirm(client, callback: CallbackQuery):
     message: Message
     message = callback.message
     players = get_players(callback.from_user.id)
+    user_id = callback.from_user.id
 
-    log.info(f"Confirm request received | {message.from_user.id}")
+    log.info(f"Confirm request received | {user_id}")
     await message.edit(text=message.text, reply_markup=None)
 
-    log.info(f"Getting roles | {message.from_user.id}")
+    log.info(f"Getting roles | {user_id}")
     await message.reply("Please enter roles, one role per line", quote=True)
     while True:
         answer = await client.listen.Message(
@@ -192,7 +193,7 @@ async def handle_confirm(client, callback: CallbackQuery):
         )
         roles = [role.strip() for role in answer.text.split("\n")]
 
-        log.info(f"Received roles {roles} | {message.from_user.id}")
+        log.info(f"Received roles {roles} | {user_id}")
         if len(roles) != len(players):
             log.info(
                 f"Incorrect number of roles. expected {len(players)}. Received {len(roles)}"
@@ -202,10 +203,10 @@ async def handle_confirm(client, callback: CallbackQuery):
                 " Please try again."
             )
         else:
-            log.info(f"Shuffling roles | {message.from_user.id}")
+            log.info(f"Shuffling roles | {user_id}")
             np.random.shuffle(roles)
 
-            log.info(f"Setting roles | {message.from_user.id}")
+            log.info(f"Setting roles | {user_id}")
             set_roles(callback.from_user.id, roles)
             await answer.reply(
                 "Ready!",
@@ -258,6 +259,8 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
     if callback.data.startswith("role_"):
         role_idx = int(callback.data.split("_")[-1])
         selected_role = remaining_roles[role_idx]
+        log.info(f"Selected role {role_idx}: {selected_role!r} ")
+
         await callback.message.edit(
             f"{players[player_idx]}\nYour role:\n{selected_role}",
             reply_markup=InlineKeyboardMarkup(
