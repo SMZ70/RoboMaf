@@ -1,6 +1,7 @@
 .env
-MafiaNarrator.session
+*.session
 robomaf.db
 __pycache__/
 logs/
 .vscode
+*.session-journal
