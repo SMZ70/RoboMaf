@@ -1,5 +1,7 @@
 import datetime
 import json
+import logging
+from enum import StrEnum
 
 from rich.traceback import install
 from sqlalchemy import (
@@ -14,6 +16,8 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
+log = logging.getLogger("robomaf.databse")
+
 install()
 
 Base = declarative_base()
@@ -25,6 +29,14 @@ def init_db():
     Base.metadata.create_all(engine)
 
 
+class GameStatus(StrEnum):
+    STARTED = "Started"
+    GETTING_PLAYERS = "GettingPlayers"
+    CONFIRM_SHUFFLE = "ConfirmShuffle"
+    GETTING_ROLES = "GettingRoles"
+    DISTRIBUTION = "Distribution"
+
+
 class Game(Base):
     __tablename__ = "game"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -34,6 +46,7 @@ class Game(Base):
     players: Mapped[list[str]] = mapped_column(Text, default="[]")
     roles: Mapped[list[str]] = mapped_column(Text, default="[]")
     assigned_roles: Mapped[list[str]] = mapped_column(Text, default="[]")
+    status: Mapped[GameStatus] = mapped_column(default=GameStatus.STARTED)
 
     @property
     def player_list(self) -> list[str]:
@@ -84,7 +97,7 @@ def get_players(owner_id: int) -> list[str]:
         game = session.query(Game).filter_by(id=owner_id).first()
         if game:
             return game.player_list
-
+    log.info("[red] ERROR")
     raise ValueError(f"No games found for owner id {owner_id}.")
 
 
@@ -139,6 +152,26 @@ def set_assigned_roles(owner_id: int, assigned_roles: list[str]):
     raise ValueError(f"No games found for owner id {owner_id}.")
 
 
+def get_status(owner_id: int) -> GameStatus:
+    with Session() as session:
+        game = session.query(Game).filter_by(id=owner_id).first()
+        if game:
+            return game.status
+
+    raise ValueError(f"No games found for owner id {owner_id}")
+
+
+def set_status(owner_id: int, status: GameStatus) -> None:
+    with Session() as session:
+        game = session.query(Game).filter_by(id=owner_id).first()
+        if game:
+            game.status = status
+            session.commit()
+            return
+
+    raise ValueError(f"No games found for owner id {owner_id}")
+
+
 def delete_game(owner_id: int):
     with Session() as session:
         game = session.query(Game).filter_by(id=owner_id).first()
@@ -148,3 +181,10 @@ def delete_game(owner_id: int):
             return
 
     raise ValueError(f"No games found for owner id {owner_id}.")
+
+
+if __name__ == "__main__":
+    init_db()
+    create_game("11111", [])
+    print(get_status("11111"))
+    set_status("11111", GameStatus.GETTING_PLAYERS)

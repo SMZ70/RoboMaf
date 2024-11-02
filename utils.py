@@ -4,12 +4,12 @@ import re
 import pyrogram.types as pt
 from pyrogram.client import Client
 
-from database import has_unfinished_game
+from database import GameStatus, get_status, has_unfinished_game
 
 log = logging.getLogger("robomaf.utils")
 
 
-def data_matches_pattern(re_pattern: str):
+def create_data_match_filter(re_pattern: str):
     def check_pattern(filter, client: Client, update: pt.CallbackQuery):
         log.debug(f"Checking {re_pattern!r} against {update.data}")
         if re.search(re_pattern, update.data):
@@ -21,6 +21,17 @@ def data_matches_pattern(re_pattern: str):
 
 def filter_unfinished_game(filter, client: Client, update: pt.CallbackQuery):
     return has_unfinished_game(update.from_user.id)
+
+
+def create_status_filter(status: GameStatus):
+    def filter_game_status(filter, client: Client, update: pt.CallbackQuery):
+        try:
+            real_status = get_status(update.from_user.id)
+        except ValueError:
+            return False
+        return real_status == status
+
+    return filter_game_status
 
 
 def chunk_list(lst, r):

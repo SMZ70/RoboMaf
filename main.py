@@ -17,18 +17,26 @@ from rich.console import Console
 from rich.traceback import install
 
 from database import (
+    GameStatus,
     create_game,
     delete_game,
     get_assigned_roles,
     get_players,
     get_roles,
+    get_status,
     has_unfinished_game,
     init_db,
     set_assigned_roles,
     set_players,
     set_roles,
+    set_status,
 )
-from utils import chunk_list, data_matches_pattern, filter_unfinished_game
+from utils import (
+    chunk_list,
+    create_data_match_filter,
+    create_status_filter,
+    filter_unfinished_game,
+)
 
 console = Console(tab_size=2)
 print = console.print
@@ -64,6 +72,7 @@ log.info("Database initialized")
 async def start_new_game(client, message: Message):
     user_id = message.from_user.id
     log.info(f"Starting new game | {user_id}")
+    log.info(f"{has_unfinished_game(user_id)}")
     if has_unfinished_game(user_id):
         log.info(f"User has an unfinished game | {user_id}")
         new_msg = await message.reply(
@@ -83,7 +92,7 @@ async def start_new_game(client, message: Message):
             answer: CallbackQuery = await client.listen.CallbackQuery(
                 filters.user(user_id)
                 & filters.create(
-                    data_matches_pattern(r"^already_game_(?:(?:yes)|(?:no))$")
+                    create_data_match_filter(r"^already_game_(?:(?:yes)|(?:no))$")
                 ),
             )
 
@@ -105,17 +114,23 @@ async def start_new_game(client, message: Message):
     create_game(owner_id=message.from_user.id, players=[])
 
     log.info(f"Getting player names | {user_id}")
-
+    set_status(user_id, GameStatus.GETTING_PLAYERS)
     await message.reply("Please enter player names, one name per line:", quote=True)
-    answer = await client.listen.Message(
-        filters.create(filter_unfinished_game)
-        & filters.user(user_id)
-        & filters.regex(r"^(?![./]).*")
-    )
-    players = [name.strip() for name in answer.text.split("\n")]
-    log.info(
-        f"{len(players)} Players received - " + ", ".join(players) + f" | {user_id}"
-    )
+
+    try:
+        answer = await client.listen.Message(
+            filters.create(create_status_filter(GameStatus.GETTING_PLAYERS))
+            & filters.create(filter_unfinished_game)
+            & filters.user(user_id)
+            & filters.regex(r"^(?![./]).*")
+        )
+        players = [name.strip() for name in answer.text.split("\n")]
+        log.info(
+            f"{len(players)} Players received - " + ", ".join(players) + f" | {user_id}"
+        )
+    except TimeoutError:
+        log.info(f"Getting players time out | {user_id}")
+        return
 
     log.info(f"Setting players | {user_id}")
     set_players(user_id, players)
@@ -137,7 +152,7 @@ async def start_new_game(client, message: Message):
     )
 
 
-@app.on_callback_query(filters=filters.create(data_matches_pattern("shuffle_list")))
+@app.on_callback_query(filters=filters.create(create_data_match_filter("shuffle_list")))
 async def handle_shuffle(client, callback: CallbackQuery):
     log.info(f"Shuffle request | {callback.from_user.id}")
     message: Message
@@ -175,30 +190,25 @@ async def handle_shuffle(client, callback: CallbackQuery):
     )
 
 
-@app.on_callback_query(filters=filters.create(data_matches_pattern("confirm_list")))
-async def handle_confirm(client, callback: CallbackQuery):
-    message: Message
-    message = callback.message
-    players = get_players(callback.from_user.id)
-    user_id = callback.from_user.id
+@app.on_message()
+async def handle_plain_text(client, message: Message):
+    user_id = message.from_user.id
+    game_status = get_status(user_id)
 
-    log.info(f"Confirm request received | {user_id}")
-    await message.edit(text=message.text, reply_markup=None)
+    if game_status == GameStatus.GETTING_ROLES:
+        log.info(f"Getting roles | {user_id}")
+        players = get_players(message.from_user.id)
 
-    log.info(f"Getting roles | {user_id}")
-    await message.reply("Please enter roles, one role per line", quote=True)
-    while True:
-        answer = await client.listen.Message(
-            filters.regex(r"^(?![./]).*") & filters.create(filter_unfinished_game)
-        )
-        roles = [role.strip() for role in answer.text.split("\n")]
+        log.info(f"Players: {players}")
+
+        roles = [role.strip() for role in message.text.split("\n")]
 
         log.info(f"Received roles {roles} | {user_id}")
         if len(roles) != len(players):
             log.info(
                 f"Incorrect number of roles. expected {len(players)}. Received {len(roles)}"
             )
-            await answer.reply(
+            await message.reply(
                 f"{len(players)} roles expected; you entered {len(roles)}."
                 " Please try again."
             )
@@ -207,8 +217,9 @@ async def handle_confirm(client, callback: CallbackQuery):
             np.random.shuffle(roles)
 
             log.info(f"Setting roles | {user_id}")
-            set_roles(callback.from_user.id, roles)
-            await answer.reply(
+            set_roles(message.from_user.id, roles)
+            set_status(message.from_user.id, GameStatus.DISTRIBUTION)
+            await message.reply(
                 "Ready!",
                 reply_markup=InlineKeyboardMarkup(
                     [
@@ -221,10 +232,22 @@ async def handle_confirm(client, callback: CallbackQuery):
                     ]
                 ),
             )
-            break
 
 
-@app.on_callback_query(filters=filters.create(data_matches_pattern("show_role")))
+@app.on_callback_query(filters=filters.create(create_data_match_filter("confirm_list")))
+async def handle_confirm(client, callback: CallbackQuery):
+    message: Message
+    message = callback.message
+    user_id = callback.from_user.id
+
+    log.info(f"Confirm request received | {user_id}")
+    await message.edit(text=message.text, reply_markup=None)
+
+    set_status(user_id, GameStatus.GETTING_ROLES)
+    await message.reply("Please enter roles, one role per line", quote=True)
+
+
+@app.on_callback_query(filters=filters.create(create_data_match_filter("show_role")))
 async def handle_show_role(client: Client, callback: CallbackQuery):
     log.info(f"Showing roles | {callback.from_user.id}")
 
@@ -242,8 +265,8 @@ async def handle_show_role(client: Client, callback: CallbackQuery):
 
 
 @app.on_callback_query(
-    filters=filters.create(data_matches_pattern(r"^role_\d+$"))
-    | filters.create(data_matches_pattern("start_distribution")),
+    filters=filters.create(create_data_match_filter(r"^role_\d+$"))
+    | filters.create(create_data_match_filter("start_distribution")),
 )
 async def handle_select_box(client: Client, callback: CallbackQuery):
     players = get_players(callback.from_user.id)
@@ -259,7 +282,10 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
     if callback.data.startswith("role_"):
         role_idx = int(callback.data.split("_")[-1])
         selected_role = remaining_roles[role_idx]
-        log.info(f"Selected role {role_idx}: {selected_role!r} ")
+        log.info(
+            f"Player {player_idx}: {players[player_idx]}"
+            f" selected role {role_idx}: {selected_role!r} "
+        )
 
         await callback.message.edit(
             f"{players[player_idx]}\nYour role:\n{selected_role}",
@@ -268,7 +294,9 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
             ),
         )
         await client.listen.CallbackQuery(
-            filters.user(callback.from_user.id) & filters.create(filter_unfinished_game)
+            filters.user(callback.from_user.id)
+            & filters.create(filter_unfinished_game)
+            & filters.create(create_status_filter(GameStatus.DISTRIBUTION))
         )
 
         remaining_roles.remove(selected_role)
@@ -276,6 +304,9 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
         set_assigned_roles(callback.from_user.id, assigned_roles)
 
         player_idx += 1
+    elif callback.data.startswith("start_distribution"):
+        log.info(f"Setting status to distribution | {callback.from_user.id}")
+        set_status(callback.from_user.id, GameStatus.DISTRIBUTION)
 
     if remaining_roles:
         boxes = chunk_list(
