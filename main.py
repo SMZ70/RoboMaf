@@ -180,21 +180,32 @@ async def handle_confirm(client, callback: CallbackQuery):
     message: Message
     message = callback.message
     players = get_players(callback.from_user.id)
+
+    log.info(f"Confirm request received | {message.from_user.id}")
     await message.edit(text=message.text, reply_markup=None)
 
+    log.info(f"Getting roles | {message.from_user.id}")
     await message.reply("Please enter roles, one role per line", quote=True)
     while True:
         answer = await client.listen.Message(
             filters.regex(r"^(?![./]).*") & filters.create(filter_unfinished_game)
         )
         roles = [role.strip() for role in answer.text.split("\n")]
+
+        log.info(f"Received roles {roles} | {message.from_user.id}")
         if len(roles) != len(players):
+            log.info(
+                f"Incorrect number of roles. expected {len(players)}. Received {len(roles)}"
+            )
             await answer.reply(
                 f"{len(players)} roles expected; you entered {len(roles)}."
                 " Please try again."
             )
         else:
+            log.info(f"Shuffling roles | {message.from_user.id}")
             np.random.shuffle(roles)
+
+            log.info(f"Setting roles | {message.from_user.id}")
             set_roles(callback.from_user.id, roles)
             await answer.reply(
                 "Ready!",
@@ -214,6 +225,8 @@ async def handle_confirm(client, callback: CallbackQuery):
 
 @app.on_callback_query(filters=filters.create(data_matches_pattern("show_role")))
 async def handle_show_role(client: Client, callback: CallbackQuery):
+    log.info(f"Showing roles | {callback.from_user.id}")
+
     players = get_players(callback.from_user.id)
     roles = get_assigned_roles(callback.from_user.id)
 
