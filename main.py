@@ -17,7 +17,7 @@ from rich.console import Console
 from rich.traceback import install
 
 from database import (
-    GameStatus,
+    UserStatus,
     create_game,
     delete_game,
     get_assigned_roles,
@@ -27,8 +27,8 @@ from database import (
     has_unfinished_game,
     init_db,
     set_assigned_roles,
+    set_game_roles,
     set_players,
-    set_roles,
     set_status,
 )
 from utils import (
@@ -68,8 +68,8 @@ init_db()
 log.info("Database initialized")
 
 
-@app.on_message(filters=filters.command("newgame", prefixes=[".", "/"]))
-async def start_new_game(client, message: Message):
+@app.on_message(filters=filters.command(["newgame", "sg", "ng"], prefixes=[".", "/"]))
+async def handle_new_game(client, message: Message):
     user_id = message.from_user.id
     log.info(f"Starting new game | {user_id}")
     log.info(f"{has_unfinished_game(user_id)}")
@@ -113,13 +113,16 @@ async def start_new_game(client, message: Message):
     log.info(f"Creating game | {user_id}")
     create_game(owner_id=message.from_user.id, players=[])
 
+    log.info(f"Setting status | {user_id}")
+    set_status(user_id, UserStatus.CREATING_GAME)
+
     log.info(f"Getting player names | {user_id}")
-    set_status(user_id, GameStatus.GETTING_PLAYERS)
+    set_status(user_id, UserStatus.GETTING_PLAYERS)
     await message.reply("Please enter player names, one name per line:", quote=True)
 
     try:
         answer = await client.listen.Message(
-            filters.create(create_status_filter(GameStatus.GETTING_PLAYERS))
+            filters.create(create_status_filter(UserStatus.GETTING_PLAYERS))
             & filters.create(filter_unfinished_game)
             & filters.user(user_id)
             & filters.regex(r"^(?![./]).*")
@@ -190,13 +193,13 @@ async def handle_shuffle(client, callback: CallbackQuery):
     )
 
 
-@app.on_message()
+@app.on_message(filters.regex(r"^(?![./]).*"))
 async def handle_plain_text(client, message: Message):
     user_id = message.from_user.id
-    game_status = get_status(user_id)
+    user_status = get_status(user_id)
 
-    if game_status == GameStatus.GETTING_ROLES:
-        log.info(f"Getting roles | {user_id}")
+    if user_status == UserStatus.GETTING_GAME_ROLES:
+        log.info(f"Getting game roles | {user_id}")
         players = get_players(message.from_user.id)
 
         log.info(f"Players: {players}")
@@ -217,8 +220,8 @@ async def handle_plain_text(client, message: Message):
             np.random.shuffle(roles)
 
             log.info(f"Setting roles | {user_id}")
-            set_roles(message.from_user.id, roles)
-            set_status(message.from_user.id, GameStatus.DISTRIBUTION)
+            set_game_roles(message.from_user.id, roles)
+            set_status(message.from_user.id, UserStatus.DISTRIBUTION_ROLES)
             await message.reply(
                 "Ready!",
                 reply_markup=InlineKeyboardMarkup(
@@ -243,7 +246,7 @@ async def handle_confirm(client, callback: CallbackQuery):
     log.info(f"Confirm request received | {user_id}")
     await message.edit(text=message.text, reply_markup=None)
 
-    set_status(user_id, GameStatus.GETTING_ROLES)
+    set_status(user_id, UserStatus.GETTING_GAME_ROLES)
     await message.reply("Please enter roles, one role per line", quote=True)
 
 
@@ -296,7 +299,7 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
         await client.listen.CallbackQuery(
             filters.user(callback.from_user.id)
             & filters.create(filter_unfinished_game)
-            & filters.create(create_status_filter(GameStatus.DISTRIBUTION))
+            & filters.create(create_status_filter(UserStatus.DISTRIBUTION_ROLES))
         )
 
         remaining_roles.remove(selected_role)
@@ -306,7 +309,7 @@ async def handle_select_box(client: Client, callback: CallbackQuery):
         player_idx += 1
     elif callback.data.startswith("start_distribution"):
         log.info(f"Setting status to distribution | {callback.from_user.id}")
-        set_status(callback.from_user.id, GameStatus.DISTRIBUTION)
+        set_status(callback.from_user.id, UserStatus.DISTRIBUTION_ROLES)
 
     if remaining_roles:
         boxes = chunk_list(

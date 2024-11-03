@@ -4,7 +4,7 @@ import re
 import pyrogram.types as pt
 from pyrogram.client import Client
 
-from database import GameStatus, get_status, has_unfinished_game
+from database import UserStatus, get_status, has_unfinished_game
 
 log = logging.getLogger("robomaf.utils")
 
@@ -23,7 +23,7 @@ def filter_unfinished_game(filter, client: Client, update: pt.CallbackQuery):
     return has_unfinished_game(update.from_user.id)
 
 
-def create_status_filter(status: GameStatus):
+def create_status_filter(status: UserStatus):
     def filter_game_status(filter, client: Client, update: pt.CallbackQuery):
         try:
             real_status = get_status(update.from_user.id)
